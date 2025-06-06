@@ -1,59 +1,68 @@
 const User = require("../models/User");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+
 const register = async (req, res) => {
   try {
     const { name, email, password, confirmPassword } = req.body;
 
     if (!name || !email || !password || !confirmPassword) {
-      return res.status(403).send({
+      return res.status(400).json({
         success: false,
-        message: "All Fields are required",
+        message: "All fields are required",
       });
     }
-    // Check if password and confirm password match
+
     if (password !== confirmPassword) {
       return res.status(400).json({
         success: false,
-        message:
-          "Password and Confirm Password do not match. Please try again.",
+        message: "Password and Confirm Password do not match",
       });
     }
 
-    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({
+      return res.status(409).json({
         success: false,
-        message: "User already exists. Please sign in to continue.",
+        message: "User already exists. Please login.",
       });
     }
 
-    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
       name,
-
       email,
-
       password: hashedPassword,
     });
-    const token = jwt.sign({ email, name }, process.env.JWT_KEY, {
-      expiresIn: 60 * 60,
+
+    const token = jwt.sign(
+      { id: user._id, name: user.name, email: user.email },
+      process.env.JWT_KEY,
+      { expiresIn: "1h" }
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Strict",
+      maxAge: 60 * 60 * 1000, // 1 hour
     });
-   
-    res.cookie("token", token, { maxAge: 60 * 60 * 1000 });
-    return res.status(200).json({
+
+    return res.status(201).json({
       success: true,
-      user,
       message: "User registered successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
     });
   } catch (error) {
     console.error(error);
     return res.status(500).json({
       success: false,
-      message: "User cannot be registered. Please try again.",
+      message: "Something went wrong during registration",
     });
   }
 };
@@ -61,33 +70,59 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
+
     if (!email || !password) {
-      throw new Error("Invalid credentials");
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
     }
 
-    const user = await User.findOne({ email});
+    const user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ error: "User not registered" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found. Please register first.",
+      });
     }
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
-      throw new Error("Invalid credentials");
+      return res.status(401).json({
+        success: false,
+        message: "Incorrect password",
+      });
     }
 
     const token = jwt.sign(
-      {  email , password },
+      { id: user._id, name: user.name, email: user.email },
       process.env.JWT_KEY,
-      {
-        expiresIn: "1h",
-      }
+      { expiresIn: "1h" }
     );
 
-    res.cookie("token", token, { maxAge: 60 * 60 * 1000 });
-    res.status(200).send("Logged in successfully");
+    res.cookie("token", token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Strict",
+      maxAge: 60 * 60 * 1000, // 1 hour
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged in successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+    });
   } catch (error) {
-    res.status(401).json({ error: error.message });
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong during login",
+    });
   }
 };
 
-module.exports = { register , login };
+module.exports = { register, login };
